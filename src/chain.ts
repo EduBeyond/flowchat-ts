@@ -36,7 +36,13 @@ export class Chain {
   prompt_tokens: number;
   completion_tokens: number;
 
-  constructor(model: string, api_key?: string, environ_key = "OPENAI_API_KEY") {
+  constructor(
+    model: string,
+    {
+      api_key,
+      environ_key = "OPENAI_API_KEY",
+    }: { api_key?: string; environ_key?: string } = {},
+  ) {
     if (!api_key) {
       api_key = process.env?.[environ_key];
     }
