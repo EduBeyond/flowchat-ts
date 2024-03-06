@@ -1,6 +1,22 @@
 {
   "name": "flowchat-ts",
   "type": "module",
+  "version": "0.0.1",
+  "license": "MIT",
+  "author": "Hinson Chan",
+  "keywords": [
+    "openai",
+    "gpt3",
+    "gpt-3",
+    "gpt4",
+    "gpt-4",
+    "chatbot",
+    "ai",
+    "nlp",
+    "prompt",
+    "prompt-engineering",
+    "toolkit"
+  ],
   "scripts": {},
   "peerDependencies": {
     "typescript": "^5.0.0"
