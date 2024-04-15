@@ -1,19 +1,19 @@
 import { asyncCallWithTimeout } from "./timeout";
+import { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { jsons } from "./utils";
+import { logger } from "./logger";
 import dedent from "ts-dedent";
 import dotenv from "dotenv";
 import OpenAI from "openai";
 import retry from "async-retry";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { logger } from "./logger";
-import { jsons } from "./utils";
 
 dotenv.config();
 
-type ResponseFormat = {
+export type ResponseFormat = {
   type: "text" | "json_object";
 };
 
-interface PullParameters {
+export interface PullParameters {
   model?: string;
   frequency_penalty?: number;
   logit_bias?: Record<string, number>;
@@ -244,7 +244,7 @@ export class Chain {
       }
 
       params.response_format = { type: "json_object" };
-      params.model = "gpt-4-turbo-preview";
+      params.model = "gpt-4-turbo";
 
       this.user_prompt.push({
         role: "user",
