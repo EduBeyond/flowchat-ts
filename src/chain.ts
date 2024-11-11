@@ -1,16 +1,15 @@
-import { asyncCallWithTimeout } from "./timeout";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { jsons } from "./utils";
-import { logger } from "./logger";
-import dedent from "ts-dedent";
-import dotenv from "dotenv";
-import OpenAI from "openai";
-import retry from "async-retry";
+import { ChatCompletion } from 'openai/src/resources';
+import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { jsons } from './utils';
+import { logger } from './logger';
+import dedent from 'ts-dedent';
+import dotenv from 'dotenv';
+import OpenAI from 'openai';
 
 dotenv.config();
 
 export type ResponseFormat = {
-  type: "text" | "json_object";
+  type: 'text' | 'json_object';
 };
 
 export interface PullParameters {
@@ -40,8 +39,8 @@ export class Chain {
     model: string,
     {
       api_key,
-      environ_key = "OPENAI_API_KEY",
-    }: { api_key?: string; environ_key?: string } = {},
+      environ_key = 'OPENAI_API_KEY',
+    }: { api_key?: string; environ_key?: string } = {}
   ) {
     if (!api_key) {
       api_key = process.env?.[environ_key];
@@ -67,29 +66,52 @@ export class Chain {
     this.completion_tokens = 0;
   }
 
-  private async try_query_and_parse(
-    fn: Promise<any>,
-    json_schema: any,
-    max_query_time: number | undefined,
+  private async ask({
+    system,
+    user_messages,
+    json_schema,
     stream = false,
-  ) {
-    const completion = await (max_query_time
-      ? asyncCallWithTimeout(fn, max_query_time)
-      : fn);
+    params = {},
+  }: {
+    system: ChatCompletionMessageParam | null;
+    user_messages: ChatCompletionMessageParam[];
+    json_schema?: any;
+    stream?: boolean;
+    params?: PullParameters;
+  }) {
+    const messages = system ? [system, ...user_messages] : user_messages;
+
+    // const message = await retry(async () => {
+    //   return this.try_query_and_parse(json_schema, max_query_time, stream);
+    // });
+
+    const completion = await this.openai.chat.completions.create({
+      model: this.model,
+      messages,
+      stream,
+      ...params,
+    });
 
     if (!completion) {
-      throw new Error("Query timed out");
+      throw new Error('Query timed out');
     }
 
     if (stream) {
       return completion;
     }
 
-    let message = completion.choices[0].message.content;
+    const chat_completion = completion as ChatCompletion;
+
+    let message = chat_completion.choices[0].message.content;
+    const usage = chat_completion.usage;
+
+    if (!message) {
+      throw new Error('No completion message found');
+    }
 
     if (json_schema) {
-      const open_bracket = message.indexOf("{");
-      const close_bracket = message.lastIndexOf("}") + 1;
+      const open_bracket = message.indexOf('{');
+      const close_bracket = message.lastIndexOf('}') + 1;
       message = message.slice(open_bracket, close_bracket);
       try {
         return JSON.parse(message);
@@ -101,57 +123,14 @@ export class Chain {
       }
     }
 
-    this.prompt_tokens += completion.usage.prompt_tokens;
-    this.completion_tokens += completion.usage.completion_tokens;
-
-    return message;
-  }
-
-  private async ask({
-    system,
-    user_messages,
-    json_schema,
-    max_query_time,
-    tries = 1,
-    stream = false,
-    params = {},
-  }: {
-    system: ChatCompletionMessageParam | null;
-    user_messages: ChatCompletionMessageParam[];
-    json_schema?: any;
-    max_query_time?: number;
-    tries?: number;
-    stream?: boolean;
-    params?: PullParameters;
-  }) {
-    const messages = system ? [system, ...user_messages] : user_messages;
-    const message = await retry(
-      async () => {
-        return this.try_query_and_parse(
-          this.openai.chat.completions.create({
-            model: this.model,
-            messages,
-            stream,
-            ...params,
-          }),
-          json_schema,
-          max_query_time,
-          stream,
-        );
-      },
-      {
-        retries: tries,
-        onRetry: (e, attempt) => {
-          logger.info(`Retrying query... Attempt ${attempt}.`);
-        },
-      },
-    );
+    this.prompt_tokens += usage?.prompt_tokens || 0;
+    this.completion_tokens += usage?.completion_tokens || 0;
 
     return message;
   }
 
   anchor(system_prompt: string) {
-    this.system = { role: "system", content: system_prompt };
+    this.system = { role: 'system', content: system_prompt };
     return this;
   }
 
@@ -164,19 +143,19 @@ export class Chain {
 
   link(modifier: string | ((msg: string) => string), assistant?: boolean) {
     let prompt;
-    if (typeof modifier === "string") {
+    if (typeof modifier === 'string') {
       if (!modifier) {
-        throw new Error("Modifier cannot be an empty string");
+        throw new Error('Modifier cannot be an empty string');
       }
       prompt = modifier;
     } else {
       if (!this.model_response) {
-        throw new Error("No model response to link to");
+        throw new Error('No model response to link to');
       }
       prompt = modifier(this.model_response);
     }
 
-    const role = assistant ? "assistant" : "user";
+    const role = assistant ? 'assistant' : 'user';
 
     this.user_prompt.push({ role, content: prompt });
 
@@ -201,33 +180,29 @@ export class Chain {
   }
 
   log() {
-    logger.info("=".repeat(60));
+    logger.info('='.repeat(60));
     logger.info(`System: ${jsons(this.system)}`);
     logger.info(`User: ${jsons(this.user_prompt)}`);
     logger.info(`Text: ${jsons(this.model_response)}`);
-    logger.info("=".repeat(60));
+    logger.info('='.repeat(60));
     return this;
   }
 
   log_tokens() {
     const { prompt_tokens, completion_tokens } = this.token_usage();
-    logger.info("=".repeat(60));
+    logger.info('='.repeat(60));
     logger.info(`Prompt tokens: ${prompt_tokens}`);
     logger.info(`Completion tokens: ${completion_tokens}`);
     logger.info(`Total tokens: ${prompt_tokens + completion_tokens}`);
-    logger.info("=".repeat(60));
+    logger.info('='.repeat(60));
     return this;
   }
 
   async pull({
     json_schema,
-    tries = 1,
-    max_query_time,
     params = {},
   }: {
     json_schema?: any;
-    tries?: number;
-    max_query_time?: number;
     params?: PullParameters;
   } = {}) {
     if (!params.model) {
@@ -235,19 +210,19 @@ export class Chain {
     }
 
     params = Object.fromEntries(
-      Object.entries(params).filter(([_, v]) => v !== undefined),
+      Object.entries(params).filter(([_, v]) => v !== undefined)
     );
 
     if (json_schema) {
-      if (typeof json_schema !== "object") {
-        throw new Error("json_schema must be an object");
+      if (typeof json_schema !== 'object') {
+        throw new Error('json_schema must be an object');
       }
 
-      params.response_format = { type: "json_object" };
-      params.model = "gpt-4-turbo";
+      params.response_format = { type: 'json_object' };
+      params.model = 'gpt-4-turbo';
 
       this.user_prompt.push({
-        role: "user",
+        role: 'user',
         content: dedent`
           You must respond in the following example JSON format. Remember to enclose the entire JSON object in curly braces: 
           ${JSON.stringify(json_schema, null, 2)}
@@ -259,8 +234,6 @@ export class Chain {
       system: this.system,
       user_messages: this.user_prompt,
       json_schema,
-      max_query_time,
-      tries,
       params,
     });
 
@@ -270,7 +243,6 @@ export class Chain {
 
   async *stream({
     plain_text_stream = false,
-    max_query_time,
     params = {},
   }: {
     plain_text_stream?: boolean;
@@ -282,14 +254,13 @@ export class Chain {
     }
 
     params = Object.fromEntries(
-      Object.entries(params).filter(([_, v]) => v !== undefined),
+      Object.entries(params).filter(([_, v]) => v !== undefined)
     );
 
     for await (const response of await this.ask({
       system: this.system,
       user_messages: this.user_prompt,
       json_schema: null,
-      max_query_time,
       stream: true,
       params,
     })) {
